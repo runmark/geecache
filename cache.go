@@ -6,12 +6,10 @@ import (
 )
 
 type cache struct {
-	mu sync.Mutex
-	lru *lru.Cache
+	mu         sync.Mutex
+	lru        *lru.Cache
 	cacheBytes int64
 }
-
-
 
 func (c *cache) add(key string, value ByteView) {
 
