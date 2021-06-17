@@ -1,24 +1,62 @@
 package geecache
 
 import (
+	"example.com/mark/geecache/consistenthash"
 	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 )
 
-const defaultBasePath = "/_geecache/"
+const (
+	defaultBasePath = "/_geecache/"
+	defaultReplicas = 50
+)
 
 type HTTPPool struct {
-	self     string
-	basePath string
+	self        string
+	basePath    string
+	mu          sync.Mutex
+	peers       *consistenthash.Map
+	httpGetters map[string]*httpGetter
 }
 
 func NewHTTPPool(self string) *HTTPPool {
 	return &HTTPPool{
-		self, defaultBasePath,
+		self: self, basePath: defaultBasePath,
 	}
+}
+
+func (pool *HTTPPool) Set(peers ...string) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	pool.peers = consistenthash.NewMap(defaultReplicas, nil)
+	pool.peers.Add(peers...)
+
+	pool.httpGetters = make(map[string]*httpGetter, len(peers))
+
+	for _, peer := range peers {
+		pool.httpGetters[peer] = &httpGetter{baseURL: peer + pool.basePath}
+	}
+}
+
+var _ PeerPicker = (*HTTPPool)(nil)
+
+func (pool *HTTPPool) PickPeer(key string) (peer PeerGetter, ok bool) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	peerId := pool.peers.Get(key)
+	if peerId == "" {
+		pool.Log("cannot find peer by key %s", key)
+		return nil, false
+	}
+
+	peer, ok = pool.httpGetters[peerId]
+	return
 }
 
 func (pool *HTTPPool) Log(format string, v ...interface{}) {
@@ -64,7 +102,9 @@ type httpGetter struct {
 	baseURL string
 }
 
-func (h *httpGetter) Get(group string, key string) ([]byte, error) {
+var _ PeerGetter = (*httpGetter)(nil)
+
+func (h *httpGetter) Get(group string, key string) (bytes []byte, err error) {
 	u := fmt.Sprintf("%v%v/%v", h.baseURL, url.QueryEscape(group), url.QueryEscape(key))
 	resp, err := http.Get(u)
 	if err != nil {
@@ -72,7 +112,15 @@ func (h *httpGetter) Get(group string, key string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	return nil, nil
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned %v", resp.Status)
+	}
+
+	_, err = resp.Body.Read(bytes)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %v", err)
+	}
+
+	return
 }
 
-var _ PeerGetter = (*httpGetter)(nil)
