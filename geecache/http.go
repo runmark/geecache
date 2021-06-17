@@ -44,19 +44,19 @@ func (pool *HTTPPool) Set(peers ...string) {
 }
 
 var _ PeerPicker = (*HTTPPool)(nil)
-
 func (pool *HTTPPool) PickPeer(key string) (peer PeerGetter, ok bool) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
 	peerId := pool.peers.Get(key)
-	if peerId == "" {
+	if peerId == "" || peerId == pool.self {
 		pool.Log("cannot find peer by key %s", key)
 		return nil, false
 	}
 
-	peer, ok = pool.httpGetters[peerId]
-	return
+	pool.Log("Pick peer %s", peerId)
+	return pool.httpGetters[peerId], true
+
 }
 
 func (pool *HTTPPool) Log(format string, v ...interface{}) {
@@ -103,7 +103,6 @@ type httpGetter struct {
 }
 
 var _ PeerGetter = (*httpGetter)(nil)
-
 func (h *httpGetter) Get(group string, key string) (bytes []byte, err error) {
 	u := fmt.Sprintf("%v%v/%v", h.baseURL, url.QueryEscape(group), url.QueryEscape(key))
 	resp, err := http.Get(u)

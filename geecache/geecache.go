@@ -2,6 +2,7 @@ package geecache
 
 import (
 	"errors"
+	"log"
 	"sync"
 )
 
@@ -20,10 +21,11 @@ type Group struct {
 	name      string
 	getter    Getter
 	mainCache cache
+	peers     PeerPicker
 }
 
 var (
-	mu sync.RWMutex
+	mu     sync.RWMutex
 	groups = make(map[string]*Group)
 )
 
@@ -34,7 +36,7 @@ func NewGroup(name string, maxBytes int64, getter Getter) (group *Group) {
 	}
 
 	group = &Group{
-		name, getter, cache{cacheBytes: maxBytes},
+		name: name, getter: getter, mainCache: cache{cacheBytes: maxBytes},
 	}
 
 	mu.Lock()
@@ -42,6 +44,13 @@ func NewGroup(name string, maxBytes int64, getter Getter) (group *Group) {
 	mu.Unlock()
 
 	return
+}
+
+func (g *Group) RegisterPeers(peers PeerPicker) {
+	if g.peers != nil {
+		panic("RegisterPeerPicker called more than once")
+	}
+	g.peers = peers
 }
 
 func GetGroup(name string) *Group {
@@ -67,7 +76,28 @@ func (g *Group) Get(key string) (r ByteView, err error) {
 }
 
 func (g *Group) load(key string) (ByteView, error) {
+
+	if g.peers != nil {
+		peer, ok := g.peers.PickPeer(key)
+		if ok {
+			value, err := g.GetFromPeer(peer, key)
+			if err == nil {
+				return value, nil
+			}
+			log.Println("[GeeCache] Failed to get from peer", err)
+		}
+	}
+
 	return g.GetFromLocal(key)
+}
+
+func (g *Group) GetFromPeer(peer PeerGetter, key string) (bv ByteView, err error) {
+	bytes, err := peer.Get(g.name, key)
+	if err != nil {
+		return ByteView{}, err
+	}
+
+	return ByteView{b: bytes}, nil
 }
 
 func (g *Group) GetFromLocal(key string) (bv ByteView, err error) {
@@ -87,4 +117,3 @@ func (g *Group) GetFromLocal(key string) (bv ByteView, err error) {
 func (g *Group) populateCache(key string, value ByteView) {
 	g.mainCache.add(key, value)
 }
-
