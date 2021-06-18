@@ -64,7 +64,8 @@ func (c *Cache) Add(key string, value Value) {
 	if ok {
 		oldEntry := elem.Value.(*entry)
 
-		elem.Value = value
+		//elem.Value = value
+		oldEntry.value = value
 		c.ll.MoveToBack(elem)
 
 		c.nbytes += int64(value.Len()) - int64(oldEntry.value.Len())
