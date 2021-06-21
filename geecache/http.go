@@ -49,14 +49,13 @@ func (pool *HTTPPool) PickPeer(key string) (peer PeerGetter, ok bool) {
 	defer pool.mu.Unlock()
 
 	peerId := pool.peers.Get(key)
-	if peerId == "" || peerId == pool.self {
-		pool.Log("cannot find peer by key %s", key)
-		return nil, false
+
+	if peerId != "" && peerId != pool.self {
+		pool.Log("Pick peer %s", peerId)
+		return pool.httpGetters[peerId], true
 	}
 
-	pool.Log("Pick peer %s", peerId)
-	return pool.httpGetters[peerId], true
-
+	return nil, false
 }
 
 func (pool *HTTPPool) Log(format string, v ...interface{}) {

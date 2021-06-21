@@ -2,6 +2,7 @@ package geecache
 
 import (
 	"errors"
+	"example.com/mark/geecache/singleflight"
 	"log"
 	"sync"
 )
@@ -22,6 +23,7 @@ type Group struct {
 	getter    Getter
 	mainCache cache
 	peers     PeerPicker
+	loader    *singleflight.Group
 }
 
 var (
@@ -37,6 +39,7 @@ func NewGroup(name string, maxBytes int64, getter Getter) (group *Group) {
 
 	group = &Group{
 		name: name, getter: getter, mainCache: cache{cacheBytes: maxBytes},
+		loader: &singleflight.Group{},
 	}
 
 	mu.Lock()
@@ -75,20 +78,29 @@ func (g *Group) Get(key string) (r ByteView, err error) {
 	return g.load(key)
 }
 
-func (g *Group) load(key string) (ByteView, error) {
+func (g *Group) load(key string) (value ByteView, err error) {
 
-	if g.peers != nil {
-		peer, ok := g.peers.PickPeer(key)
-		if ok {
-			value, err := g.GetFromPeer(peer, key)
-			if err == nil {
-				return value, nil
+	viewi, err := g.loader.Do(key, func() (interface{}, error) {
+
+		if g.peers != nil {
+			peer, ok := g.peers.PickPeer(key)
+			if ok {
+				value, err := g.GetFromPeer(peer, key)
+				if err == nil {
+					return value, nil
+				}
+				log.Println("[GeeCache] Failed to get from peer", err)
 			}
-			log.Println("[GeeCache] Failed to get from peer", err)
 		}
+
+		return g.GetFromLocal(key)
+	})
+
+	if err == nil {
+		return viewi.(ByteView), nil
 	}
 
-	return g.GetFromLocal(key)
+	return
 }
 
 func (g *Group) GetFromPeer(peer PeerGetter, key string) (bv ByteView, err error) {

@@ -22,7 +22,7 @@ func TestGetterFunc_Get(t *testing.T) {
 
 }
 
-var db = map[string]string{
+var slowdb = map[string]string{
 	"Tom":  "630",
 	"Jack": "589",
 	"Sam":  "567",
@@ -30,13 +30,13 @@ var db = map[string]string{
 
 func TestGet(t *testing.T) {
 
-	loadCounts := make(map[string]int, len(db))
+	loadCounts := make(map[string]int, len(slowdb))
 
 	group := NewGroup("score", 1<<10, GetterFunc(func(key string) ([]byte, error) {
 
-		r, ok := db[key]
+		r, ok := slowdb[key]
 		if ok {
-			log.Println("[slow db] search key", key)
+			log.Println("[slow slowdb] search key", key)
 
 			_, ok = loadCounts[key]
 			if !ok {
@@ -52,7 +52,7 @@ func TestGet(t *testing.T) {
 
 	}))
 
-	for k, v := range db {
+	for k, v := range slowdb {
 
 		vv, err := group.Get(k)
 		if err != nil || v != string(vv.b) {
